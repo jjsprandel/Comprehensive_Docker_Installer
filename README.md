@@ -1,3 +1,7 @@
 # docker_install_script
 
-![image](https://github.com/jjsprandel/docker_install_script/assets/116921084/2214b0ca-6fb2-41c3-82cf-ab5804ee9f8f)
+ This repository contains the following:
+1. docker_install.py: Python program that installs Docker Desktop from start to finish (enables virtualization, checks system requirements, etc.)
+2. Dockerfile: provides an isolated Python environment and creates an executable from docker_install.py
+3. Makefile: to automatically build the Docker image and run the container
+4. docker_install.exe: most recent working executable
