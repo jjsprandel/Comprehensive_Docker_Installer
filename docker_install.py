@@ -8,65 +8,55 @@ import subprocess
 import shutil
 import pickle
 import time
-
+from misc_scripts.have_docker import have_docker
+from os_specific_scripts.windows_install import windows_install
+from os_specific_scripts.windows_install import windows_install_cont
+from os_specific_scripts.darwin_install import darwin_install
+from os_specific_scripts.windows_restart import load_checkpoint
+from os_specific_scripts.windows_restart import remove_from_startup
 
 """ 
-Program execution order:
+PROGRAM EXECUTION ORDER:
 1. display program info
 2. check if Docker is already installed
-4. check that system meets general requirements (RAM, os, etc)
-5. get correct Docker installer from https://docs.docker.com/desktop/ based on OS
-6. 
+3. determine OS
+
+For Windows:
+    1. enable Windows Subsystem for Linux
+    2. check requirements for running WSL 2
+    3. enable virtualization
+    4. restart the machine
+    5. download the Linux kernel update package
+    6. run the update package
+    7. set WSL2 as default version
+    8. check Windows version for requirements to install Docker
+    9. download Docker installer
+    10. run Docker
+
+For macOS (ARM):
+    1. install Rosetta 2
+    2. download the Docker installer
+    3. run the installer
+    4. run Docker
+
+For macOS (Intel):
+    1. check macOS version for requirements
+    2. check system requirements (RAM)
+    3. check VirtualBox version
+    4. download the Docker installer
+    4. run the installer
+    5. run Docker
+
+For Linux:
+    ** OS not added **
 """
 
-# Define the checkpoint file path
 CHECKPOINT_FILE = 'checkpoint.pkl'
-
-# Save the relevant state information
-def save_checkpoint(line_number):
-    checkpoint_data = {'line_number': line_number}
-    with open(CHECKPOINT_FILE, 'wb') as f:
-        pickle.dump(checkpoint_data, f)
-
-# Load the stored state
-def load_checkpoint():
-    with open(CHECKPOINT_FILE, 'rb') as f:
-        checkpoint_data = pickle.load(f)
-    return checkpoint_data['line_number']
-
-def restart_computer():
-    # Save the checkpoint before restarting
-    save_checkpoint(42)
-
-    # Get the path to the current executable
-    script_path = sys.executable
-
-    # Get the startup folder path
-    startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft\\Windows\\Start Menu\\Programs\\Startup')
-
-    # Copy the executable to the startup folder
-    shutil.copy2(script_path, startup_folder)
-
-    # Restart the computer
-    os.system('shutdown /r /t 0')
-
-def remove_from_startup():
-    # Get the path to the current executable
-    script_path = sys.executable
-
-    # Get the startup folder path
-    startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft\\Windows\\Start Menu\\Programs\\Startup')
-
-    # Construct the full path of the executable in the startup folder
-    startup_executable = os.path.join(startup_folder, os.path.basename(script_path))
-
-    # Remove the executable from the startup folder if it exists
-    if os.path.exists(startup_executable):
-        os.remove(startup_executable)
 
 # prints general info to terminal and requires user input before continuing with the rest of the program
 def program_info():
-    print("This program downloads the Docker Desktop Installer and runs the installer in unattended mode")
+    
+    print("\nThis is a platform-independent Docker Desktop Installer. All requirements/features will be installed and enabled for your OS.")
     user_input = input("Do you wish to continue (y/n): ")
     if (user_input == "y") | (user_input == "Y"):
         return 0
@@ -77,58 +67,21 @@ def program_info():
     else:
         return 2
 
-# check to see if Docker is already installed
-def have_docker():
-    docker_check = subprocess.Popen(["docker", "--version"], stdout=subprocess.DEVNULL)
-    docker_check.communicate()
-    rc = docker_check.returncode
-    if rc == 0:
-        return 3
-    else:
-        print("Docker is not installed on this machine")
-        return 0
-
 # first step in docker installation is determining OS
 def install_docker():
-    print("RAM:                        ",psutil.virtual_memory().total / (1024. **3))
-    print("platform.system()           ", platform.system())
-    print("sysconfig.get_platform()    ", sysconfig.get_platform())
-    print("platform.machine()          ", platform.machine())
-    print("platform.architecture()     ", platform.architecture())
-
     if platform.system() == "Windows":
-        windows()
+        return_code = windows_install()
+        if return_code != 0:
+            return return_code
     elif platform.system() == "Linux":
         linux()
     elif platform.system() == "Darwin":
-        darwin()
+        darwin_install()
     else:
         return 4
     return 0
 
-def windows():
-    if platform.system() == "Windows":
-        if psutil.virtual_memory().total / (1024. **3) >= 4:
-            print("System meets requirements")
-            url = "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe?_gl=1*zgulyg*_ga*MTcyMzIxMjkxMi4xNjg0ODEzMDYw*_ga_XJWPQMJYHQ*MTY4NzU1NTk3OC4yMy4wLjE2ODc1NTU5NzguNjAuMC4w"
-            r = requests.get(url)
-
-            with open("Docker Desktop Installer.exe", 'wb') as f:
-                f.write(r.content)
-        
-            
-
-            return_code = subprocess.call(["C:\\codebase\\docker_install_script\\Docker Desktop Installer.exe"], stdout=subprocess.DEVNULL)
-
-        if return_code != 0:
-            print("Installation failed")
-    
-    return
-
 def linux():
-    return
-
-def darwin():
     return
 
 def error_handling(error_code):
@@ -144,23 +97,29 @@ def error_handling(error_code):
         print("This OS is not currently supported")
     
     print("exiting............................................................................")
-    time.sleep(3)
+    time.sleep(2)
     exit()
         
 
 def main():
-    error_code = program_info()
-    if error_code != 0:
-        error_handling(error_code)
+    # if checkpoint file exists, continue program from where it left off
+    if os.path.exists(CHECKPOINT_FILE):
+        remove_from_startup()
+        file_path, line_to_resume = load_checkpoint()
+        windows_install_cont()
     
-    error_code = have_docker()
-    if error_code != 0:
-        error_handling(error_code)
+    else:
+        error_code = program_info()
+        if error_code != 0:
+            error_handling(error_code)
 
-    install_docker()
-    if error_code != 0:
-        error_handling(error_code)
+        error_code = have_docker()
+        if error_code != 0:
+            error_handling(error_code)
 
+        install_docker()
+        if error_code != 0:
+            error_handling(error_code)
 
 if __name__ == '__main__':
     main()
